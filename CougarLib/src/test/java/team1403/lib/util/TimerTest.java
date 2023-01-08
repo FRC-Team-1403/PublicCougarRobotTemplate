@@ -63,20 +63,20 @@ class TimerTest {
     assertEquals(0.5 * Clock.kMicrosPerSec, microTimer.recordMicros());
     assertEquals(0.5 * Clock.kMicrosPerSec, milliTimer.recordMicros());
 
-    NetworkTableEntry microEntry = SmartDashboard.getEntry("MicroTimer");
-    NetworkTableEntry milliEntry = SmartDashboard.getEntry("MilliTimer");
-    assertEquals(0.5 * Clock.kMicrosPerSec, microEntry.getNumber(-1));
-    assertEquals(0.5 * Clock.kMillisPerSec, milliEntry.getDouble(-1));
+    try (final NetworkTableEntry microEntry = SmartDashboard.getEntry("MicroTimer");
+         final NetworkTableEntry milliEntry = SmartDashboard.getEntry("MilliTimer")) {
+      assertEquals(0.5 * Clock.kMicrosPerSec, microEntry.getNumber(-1));
+      assertEquals(0.5 * Clock.kMillisPerSec, milliEntry.getDouble(-1));
 
-    // Test can ask for millis regardless of recording units
-    // and timer will record using units specified at construction.
-    clock.advanceSecs(0.25);
-    assertEquals(0.75 * Clock.kMillisPerSec, microTimer.recordMillis());
-    assertEquals(0.75 * Clock.kMillisPerSec, milliTimer.recordMillis());
+      // Test can ask for millis regardless of recording units
+      // and timer will record using units specified at construction.
+      clock.advanceSecs(0.25);
+      assertEquals(0.75 * Clock.kMillisPerSec, microTimer.recordMillis());
+      assertEquals(0.75 * Clock.kMillisPerSec, milliTimer.recordMillis());
 
-    assertEquals(0.75 * Clock.kMicrosPerSec, microEntry.getNumber(-1));
-    assertEquals(0.75 * Clock.kMillisPerSec, milliEntry.getDouble(-1));
-
+      assertEquals(0.75 * Clock.kMicrosPerSec, microEntry.getNumber(-1));
+      assertEquals(0.75 * Clock.kMillisPerSec, milliEntry.getDouble(-1));
+    }
   }
 
 
@@ -104,90 +104,88 @@ class TimerTest {
     final long expectMicros = (long)(expectSecs * Clock.kMicrosPerSec);
 
     // When we record the timer, this is where it should record to.
-    final NetworkTableEntry microEntry
-        = SmartDashboard.getEntry("MicroCallbackTimer");
-    final NetworkTableEntry milliEntry 
-        = SmartDashboard.getEntry("MilliCallbackTimer");
+    try (final NetworkTableEntry microEntry = SmartDashboard.getEntry("MicroCallbackTimer");
+         final NetworkTableEntry milliEntry = SmartDashboard.getEntry("MilliCallbackTimer")) {
+      // Helper function for testing whether or not we recorded.
+      // Note this assumes that we test unrecorded calls first.
+      // Written as a lambda for convienence of capturing local
+      // variables rather than passing them through as parameters.
+      final Consumer<Boolean> testRecorded = (Boolean record) -> {
+        if (record.booleanValue()) {
+          // network tables treat all numbers as doubles.
+          assertEquals((double)expectMicros, microEntry.getNumber(-1));
+          assertEquals(expectMillis, milliEntry.getDouble(-1));
+        } else {
+          // We didnt record so nothing written yet.
+          assertEquals(-1.0, microEntry.getNumber(-1));
+          assertEquals(-1.0, milliEntry.getDouble(-1.0));
+        }
+      };
 
-    // Helper function for testing whether or not we recorded.
-    // Note this assumes that we test unrecorded calls first.
-    // Written as a lambda for convienence of capturing local
-    // variables rather than passing them through as parameters.
-    final Consumer<Boolean> testRecorded = (Boolean record) -> {
-      if (record.booleanValue()) {
-        // network tables treat all numbers as doubles.
-        assertEquals((double)expectMicros, microEntry.getNumber(-1));
-        assertEquals(expectMillis, milliEntry.getDouble(-1));
-      } else {
-        // We didnt record so nothing written yet.
-        assertEquals(-1.0, microEntry.getNumber(-1));
-        assertEquals(-1.0, milliEntry.getDouble(-1.0));
-      }
-    };
+      // The timer's that we'll test. We construct one for each unit type.
+      final BaseTimer microTimer = new BaseTimer(
+          "MicroCallbackTimer", clock, BaseTimer.RecordUnit.MICROSECOND);
+      final BaseTimer milliTimer = new BaseTimer(
+          "MilliCallbackTimer", clock, BaseTimer.RecordUnit.MILLISECOND);
 
-    // The timer's that we'll test. We construct one for each unit type.
-    final BaseTimer microTimer = new BaseTimer(
-        "MicroCallbackTimer", clock, BaseTimer.RecordUnit.MICROSECOND);
-    final BaseTimer milliTimer = new BaseTimer(
-        "MilliCallbackTimer", clock, BaseTimer.RecordUnit.MILLISECOND);
+      // Tests timing as milliseconds. The timers should return milliseconds
+      // but record as their constructed units (if recording at all).
+      // Written as a lambda for convienence of capturing local
+      // variables rather than passing them through as parameters.
+      final ToIntBiFunction<Integer, Boolean> testMillis
+          = (Integer numCallsSoFar, Boolean record) -> {
+            int count = numCallsSoFar.intValue();
+            assertEquals(startTime + count * expectSecs,
+                         clock.nowSecs());
+            assertEquals(expectMillis,
+                         milliTimer.timeCallMillis(record, callback));
+            ++count;
+            assertEquals(startTime + count * expectSecs,
+                         clock.nowSecs());
 
-    // Tests timing as milliseconds. The timers should return milliseconds
-    // but record as their constructed units (if recording at all).
-    // Written as a lambda for convienence of capturing local
-    // variables rather than passing them through as parameters.
-    final ToIntBiFunction<Integer, Boolean> testMillis
-        = (Integer numCallsSoFar, Boolean record) -> {
-          int count = numCallsSoFar.intValue();
-          assertEquals(startTime + count * expectSecs,
-                       clock.nowSecs());
-          assertEquals(expectMillis,
-                       milliTimer.timeCallMillis(record, callback));
-          ++count;
-          assertEquals(startTime + count * expectSecs,
-                       clock.nowSecs());
+            assertEquals(expectMillis,
+                         microTimer.timeCallMillis(record, callback));
+            ++count;
+            assertEquals(startTime + count * expectSecs,
+                         clock.nowSecs());
+            return count;
+          };
 
-          assertEquals(expectMillis,
-                       microTimer.timeCallMillis(record, callback));
-          ++count;
-          assertEquals(startTime + count * expectSecs,
-                       clock.nowSecs());
-          return count;
-        };
+      // Similar to testMillis but asks for microseconds.
+      final ToIntBiFunction<Integer, Boolean> testMicros
+          = (Integer numCallsSoFar, Boolean record) -> {
+            int count = numCallsSoFar.intValue();
+            assertEquals(startTime + count * expectSecs,
+                         clock.nowSecs());
+            assertEquals(expectMicros,
+                         milliTimer.timeCallMicros(record, callback));
+            ++count;
+            assertEquals(startTime + count * expectSecs,
+                         clock.nowSecs());
 
-    // Similar to testMillis but asks for microseconds.
-    final ToIntBiFunction<Integer, Boolean> testMicros
-        = (Integer numCallsSoFar, Boolean record) -> {
-          int count = numCallsSoFar.intValue();
-          assertEquals(startTime + count * expectSecs,
-                       clock.nowSecs());
-          assertEquals(expectMicros,
-                       milliTimer.timeCallMicros(record, callback));
-          ++count;
-          assertEquals(startTime + count * expectSecs,
-                       clock.nowSecs());
-
-          assertEquals(expectMicros,
-                       microTimer.timeCallMicros(record, callback));
-          ++count;
-          assertEquals(startTime + count * expectSecs,
-                       clock.nowSecs());
-          return count;
-        };
+            assertEquals(expectMicros,
+                         microTimer.timeCallMicros(record, callback));
+            ++count;
+            assertEquals(startTime + count * expectSecs,
+                         clock.nowSecs());
+            return count;
+          };
 
 
-    // Run the variations.
-    int numCallsSoFar = 0;
+      // Run the variations.
+      int numCallsSoFar = 0;
 
-    // Test unrecorded timing
-    numCallsSoFar = testMillis.applyAsInt(numCallsSoFar, false);
-    testRecorded.accept(false);
-    numCallsSoFar = testMicros.applyAsInt(numCallsSoFar, false);
-    testRecorded.accept(false);
+      // Test unrecorded timing
+      numCallsSoFar = testMillis.applyAsInt(numCallsSoFar, false);
+      testRecorded.accept(false);
+      numCallsSoFar = testMicros.applyAsInt(numCallsSoFar, false);
+      testRecorded.accept(false);
 
-    // Test recorded timing
-    numCallsSoFar = testMillis.applyAsInt(numCallsSoFar, true);
-    testRecorded.accept(true);
-    testMicros.applyAsInt(numCallsSoFar, true);
-    testRecorded.accept(true);
+      // Test recorded timing
+      numCallsSoFar = testMillis.applyAsInt(numCallsSoFar, true);
+      testRecorded.accept(true);
+      testMicros.applyAsInt(numCallsSoFar, true);
+      testRecorded.accept(true);
+    }
   }
 }

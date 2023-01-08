@@ -10,7 +10,6 @@ import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 
 import team1403.lib.core.CougarLibInjectedParameters;
-import team1403.lib.device.virtual.ManualLimitSwitch;
 import team1403.robot.__replaceme__.RobotConfig;
 
 

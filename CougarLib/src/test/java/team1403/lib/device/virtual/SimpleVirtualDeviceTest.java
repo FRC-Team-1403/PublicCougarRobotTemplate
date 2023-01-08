@@ -29,27 +29,28 @@ class SimpleVirtualDeviceTest {
     final String name = device.getName();
 
     var table = tableInstance.getTable(name);
-    var builder = new SendableBuilderImpl();
-    builder.setTable(table);
-    ((Sendable)device).initSendable(builder);
-    builder.update();
-    assertEquals("LimitSwitch", table.getEntry(".type").getString("NotFound"));
-    var triggeredEntry = table.getEntry("Triggered");
+    try (var builder = new SendableBuilderImpl();) {
+      builder.setTable(table);
+      ((Sendable)device).initSendable(builder);
+      builder.update();
+      assertEquals("LimitSwitch", table.getEntry(".type").getString("NotFound"));
+      var triggeredEntry = table.getEntry("Triggered");
 
-    assertFalse(device.isTriggered());
-    assertFalse(triggeredEntry.getBoolean(true));
+      assertFalse(device.isTriggered());
+      assertFalse(triggeredEntry.getBoolean(true));
 
-    proxy.setTriggered(true);
-    assertTrue(device.isTriggered());
-    assertFalse(triggeredEntry.getBoolean(true));
-    builder.update();
-    assertTrue(triggeredEntry.getBoolean(false));
+      proxy.setTriggered(true);
+      assertTrue(device.isTriggered());
+      assertFalse(triggeredEntry.getBoolean(true));
+      builder.update();
+      assertTrue(triggeredEntry.getBoolean(false));
 
-    proxy.setTriggered(false);
-    assertFalse(device.isTriggered());
-    assertTrue(triggeredEntry.getBoolean(false));
-    builder.update();
-    assertFalse(triggeredEntry.getBoolean(true));
+      proxy.setTriggered(false);
+      assertFalse(device.isTriggered());
+      assertTrue(triggeredEntry.getBoolean(false));
+      builder.update();
+      assertFalse(triggeredEntry.getBoolean(true));
+    }
   }
 
   @Test
