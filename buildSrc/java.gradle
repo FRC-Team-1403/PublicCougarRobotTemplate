@@ -15,7 +15,7 @@ dependencies {
 
 checkstyle {
     toolVersion = '10.3.1'
-    configFile = file("${project.rootDir}/CougarLib/buildSrc/checkstyle.xml")
+    configFile = file("${project.rootDir}/buildSrc/checkstyle.xml")
     reportsDir = file("${project.rootDir}/build/reports/${project.name}/checkstyle")
     // Dont check test code
     sourceSets = [project.sourceSets.main]
@@ -26,7 +26,7 @@ pmd {
     toolVersion = '6.47.0'
     ignoreFailures = true
     ruleSets = []
-    ruleSetFiles = files("${project.rootDir}/CougarLib/buildSrc/pmd.xml")
+    ruleSetFiles = files("${project.rootDir}/buildSrc/pmd.xml")
     reportsDir = file("${project.rootDir}/build/reports/${project.name}/pmd")
 }
 
