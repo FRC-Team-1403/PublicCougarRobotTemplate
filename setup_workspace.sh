@@ -104,14 +104,7 @@ EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
     <classpathentry kind="src" output="target/classes"
-                    path="CougarLib/src/test/java">
-        <attributes>
-          <attribute name="optional" value="true"/>
-          <attribute name="test" value="true"/>
-        </attributes>
-    </classpathentry>
-    <classpathentry kind="src" output="target/classes"
-                    path="Robot/src/test/java">
+                    path="src/test/java">
         <attributes>
           <attribute name="optional" value="true"/>
           <attribute name="test" value="true"/>
