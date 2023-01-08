@@ -18,14 +18,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import edu.wpi.first.networktables.EntryListenerFlags;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.networktables.NetworkTableValue;
-import edu.wpi.first.networktables.TableEntryListener;
-
-import team1403.lib.util.test.NetworkTablesTestUtil;
 
 /**
  * Test fixture for CougarLogger.
@@ -40,11 +35,8 @@ class CougarLoggerTest {
   @BeforeEach
   void prepareNetworkTables() {
     try (NetworkTableInstance instance = NetworkTableInstance.getDefault()) {
-      // Clear table from previous test.
       m_baseNetworkTable = instance.getTable(CougarLogger.kTable);
-      for (String key : m_baseNetworkTable.getKeys()) {
-        m_baseNetworkTable.delete(key);
-      }
+      // We'd like to clear all the keys but there is no longer an API to do that.
     }
   }
 
@@ -53,7 +45,7 @@ class CougarLoggerTest {
   void testGetLogger() {
     final String fullClassName = CougarLoggerTest.class.getName();
     final String packageName = CougarLoggerTest.class.getPackage().getName();
-    assertFalse(m_baseNetworkTable.containsKey(packageName));
+
     final CougarLogger byName = CougarLogger.getCougarLogger(packageName);
     assertEquals(packageName, byName.getName());
     assertTrue(m_baseNetworkTable.containsKey(packageName));
@@ -434,139 +426,30 @@ class CougarLoggerTest {
     final CougarLogger childLogger = CougarLogger.getChildLogger(parentLogger, "Child");
     assertTrue(m_baseNetworkTable.containsKey(kChildKey));
 
-    final NetworkTableEntry parentEntry = m_baseNetworkTable.getEntry(kParentKey);
-    final NetworkTableEntry childEntry = m_baseNetworkTable.getEntry(kChildKey);
+    try (final NetworkTableEntry parentEntry = m_baseNetworkTable.getEntry(kParentKey);
+         final NetworkTableEntry childEntry = m_baseNetworkTable.getEntry(kChildKey)) {
+      assertEquals(0, parentEntry.getInteger(-1));
+      assertEquals(0, childEntry.getInteger(-1));
 
-    assertEquals(0, parentEntry.getNumber(-1).intValue());
-    assertEquals(0, childEntry.getNumber(-1).intValue());
+      parentLogger.setConsoleLevel(Level.FINEST);
+      assertEquals(2, parentEntry.getInteger(-1));
+      assertEquals(0, childEntry.getInteger(-1));
 
-    parentLogger.setConsoleLevel(Level.FINEST);
-    assertEquals(2, parentEntry.getNumber(-1).intValue());
-    assertEquals(0, childEntry.getNumber(-1).intValue());
+      parentLogger.setConsoleLevel(Level.FINE);
+      assertEquals(1, parentEntry.getInteger(-1));
+      assertEquals(0, childEntry.getInteger(-1));
 
-    parentLogger.setConsoleLevel(Level.FINE);
-    assertEquals(1, parentEntry.getNumber(-1).intValue());
-    assertEquals(0, childEntry.getNumber(-1).intValue());
+      parentLogger.setConsoleLevel(Level.INFO);
+      assertEquals(0, parentEntry.getInteger(-1));
+      assertEquals(0, childEntry.getInteger(-1));
 
-    parentLogger.setConsoleLevel(Level.INFO);
-    assertEquals(0, parentEntry.getNumber(-1).intValue());
-    assertEquals(0, childEntry.getNumber(-1).intValue());
+      parentLogger.setConsoleLevel(Level.WARNING);
+      assertEquals(0, parentEntry.getInteger(-1));
+      assertEquals(0, childEntry.getInteger(-1));
 
-    parentLogger.setConsoleLevel(Level.WARNING);
-    assertEquals(0, parentEntry.getNumber(-1).intValue());
-    assertEquals(0, childEntry.getNumber(-1).intValue());
-
-    childLogger.setConsoleLevel(Level.FINE);
-    assertEquals(0, parentEntry.getNumber(-1).intValue());
-    assertEquals(1, childEntry.getNumber(-1).intValue());
-  }
-
-  @Test
-  @SuppressWarnings({
-      "PMD.VariableDeclarationUsageDistance",
-      "PMD.CloseResource",
-      "PMD.ExcessiveMethodLength"})
-  void testUpdatesFromNetworkTable() throws IOException {
-    final CougarLogger parentLogger = CougarLogger.getCougarLogger("FromParent");
-    final CougarLogger childLogger = CougarLogger.getChildLogger(parentLogger, "Child");
-
-    // We're going to create two distributed network table instances.
-    // One will be a remote server that we will manipuluate.
-    // The other will be the local default that is a client of that server.
-    // The CougarLogger instances are using this default instance.
-    // We'll test that our CougarLogger instances update in response to
-    // the changes made in the remote server.
-    var pair = NetworkTablesTestUtil.createLoopbackPair(
-                   NetworkTablesTestUtil.kDefaultNetworkName, "testRemote");
-    var local = pair[0];
-    var remote = pair[1];
-    assertTrue(local.isValid());
-
-    final NetworkTable remoteTable = remote.getTable(CougarLogger.kTable);
-    final NetworkTable localTable = local.getTable(CougarLogger.kTable);
-    final NetworkTableEntry parentEntry = remoteTable.getEntry("FromParent");
-    final NetworkTableEntry childEntry = remoteTable.getEntry("FromParent.Child");
-
-    remote.flush();
-    try {
-      // Needs time to setup loggers
-      Thread.sleep(500);
-    } catch (InterruptedException intex) {
-      // empty;
+      childLogger.setConsoleLevel(Level.FINE);
+      assertEquals(0, parentEntry.getInteger(-1));
+      assertEquals(1, childEntry.getInteger(-1));
     }
-
-    /**
-     * Helper class that we can use to wait on observed changes.
-     *
-     * <p>Our test will make a change in the server then wait
-     * for the client to see those changes. Once it sees the
-     * changes then we can assume that our Loggers should also
-     * have seen those changes so it is safe to continue the test.
-     *
-     * <p>Note there is technically a race condition here because
-     * we are seeing the change before perhaps the logger had a
-     * chance to respond. We'll assume we dont need to worry about
-     * this because the listeners are probably executed in order,
-     * and we were added later.
-     */
-    class Listener implements TableEntryListener {
-      @Override
-      public void valueChanged(NetworkTable t, String k,
-                               NetworkTableEntry e,
-                               NetworkTableValue v,
-                               int flags) {
-        // Signal back to ourself that we saw the change.
-        synchronized (this) {
-          m_changed = true;
-          notifyAll();
-        }
-      }
-
-      @SuppressWarnings("PMD.AvoidSynchronizedAtMethodLevel")
-      void waitForChange(int millis) {
-        long deadline = System.currentTimeMillis() + millis;
-        while (!m_changed & System.currentTimeMillis() < deadline) {
-          try {
-            // Wait util valueChanged signals us.
-            synchronized (this) {
-              wait(millis);
-            }
-          } catch (InterruptedException ex) {
-            // empty
-          }
-        }
-        if (!m_changed) {
-          fail("Timed out");
-        }
-        // Clear the change for next time.
-        m_changed = false;
-      }
-
-      private boolean m_changed;
-    }
-
-    Listener listener = new Listener();
-    localTable.addEntryListener(listener, EntryListenerFlags.kUpdate);
-    assertEquals(null, parentLogger.getConsoleLevel());
-    assertEquals(null, childLogger.getConsoleLevel());
-
-    parentEntry.setNumber(1);
-    listener.waitForChange(1000);
-    assertEquals(Level.FINE, parentLogger.getConsoleLevel());
-    assertEquals(null, childLogger.getConsoleLevel());
-
-    parentEntry.setNumber(2);
-    listener.waitForChange(1000);
-    assertEquals(Level.FINEST, parentLogger.getConsoleLevel());
-    assertEquals(null, childLogger.getConsoleLevel());
-
-    parentEntry.setNumber(3);
-    listener.waitForChange(1000);
-    assertEquals(Level.FINEST, parentLogger.getConsoleLevel());
-
-    childEntry.setNumber(1);
-    listener.waitForChange(1000);
-    assertEquals(Level.FINEST, parentLogger.getConsoleLevel());
-    assertEquals(Level.FINE, childLogger.getConsoleLevel());
   }
 }

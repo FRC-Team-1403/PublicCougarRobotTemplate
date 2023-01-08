@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.ConsoleHandler;
@@ -16,12 +17,9 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 import edu.wpi.first.hal.HALUtil;
-import edu.wpi.first.networktables.EntryListenerFlags;
 import edu.wpi.first.networktables.NetworkTable;
-import edu.wpi.first.networktables.NetworkTableEntry;
+import edu.wpi.first.networktables.NetworkTableEvent;
 import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.networktables.NetworkTableValue;
-import edu.wpi.first.networktables.TableEntryListener;
 
 /**
  * A wrapper around {@code java.util.logging.Logger} for logging.
@@ -109,58 +107,6 @@ public final class CougarLogger {
   public static final String kTable = "CougarLoggers";
 
   /**
-   * Updates logger level when corresponding network table entry changes.
-   *
-   * <p>We dont necessarily need to do this as the means to update log levels
-   * from the dashboard. We could create commands to change the logging level
-   * and have the command then set the level in reponse. That would be a
-   * simpler implementation. However it would probably be more awkward to use
-   * because the person issuing the command would have to specify which logger
-   * and which level they want from the UI.
-   *
-   * <p>This isnt that hard, and is probably similar in code size to
-   * the command that would update the level when executed. However, this
-   * is much more complicated to test (but is also easier to use).
-   */
-  private static class CougarLoggerUpdater implements TableEntryListener {
-    @Override
-    public void valueChanged(NetworkTable table, String key,
-                             NetworkTableEntry entry,
-                             NetworkTableValue value,
-                             int flags) {
-      CougarLogger internalLogger
-          = CougarLogger.getLoggerForClass(CougarLogger.class);
-      int num;
-      try {
-        num = entry.getNumber(0).intValue();
-        if (num > 2) { // NOPMD - AvoidLiteralsInIfCondition
-          num = 2;
-        }
-      } catch (ClassCastException ex) {
-        internalLogger.errorf("Could not change %s: %s", key, ex);
-        return;
-      }
-
-      String name = key.substring(key.lastIndexOf('/', 0) + 1);
-      CougarLogger logger = CougarLogger.getCougarLogger(name);
-      switch (num) {
-        case 2:
-          logger.setConsoleLevel(Level.FINEST);
-          break;
-        case 1:
-          logger.setConsoleLevel(Level.FINE);
-          break;
-        default:
-          logger.setConsoleLevel(null);
-          break;
-      }
-      internalLogger.debugf("Updated %s to console level %s",
-                            name, logger.getConsoleLevel());
-    }
-  }
-
-
-  /**
    * Maps logging.Level to UI codes for changing the level.
    * We'll use simple numbers since we dont have a means to
    * add an enumeration to the UI that changes these.
@@ -186,11 +132,35 @@ public final class CougarLogger {
       return;
     }
 
-    NetworkTable table = NetworkTableInstance.getDefault().getTable(kTable);
-    if (_updater == null) {
-      _updater = new CougarLoggerUpdater();
-      table.addEntryListener(_updater, EntryListenerFlags.kUpdate);
-    }
+    var networkTableInstance = NetworkTableInstance.getDefault();
+    var table = networkTableInstance.getTable(kTable);
+    var tableEntry = table.getEntry(getName());
+    var listenEvents = EnumSet.of(NetworkTableEvent.Kind.kValueRemote);
+
+    // Don't keep the resulting handle id since we're never going to stop listening.
+    networkTableInstance.addListener(
+        tableEntry, listenEvents,
+        (NetworkTableEvent event) -> {
+          var internalLogger = CougarLogger.getLoggerForClass(CougarLogger.class);
+          int num = (int)event.valueData.value.getInteger();
+          if (num > 2) { // NOPMD - AvoidLiteralsInIfCondition
+            num = 2;
+          }
+
+          switch (num) {
+            case 2:
+              setConsoleLevel(Level.FINEST);
+              break;
+            case 1:
+              setConsoleLevel(Level.FINE);
+              break;
+            default:
+              setConsoleLevel(null);
+              break;
+          }
+          internalLogger.debugf("Updated %s to console level %s",
+                                getName(), getConsoleLevel());
+        });
 
     // Pre-populate logger keys to root so can manipulate at any level.
     var name = getName();
@@ -199,7 +169,7 @@ public final class CougarLogger {
       if (entry.exists()) {
         break;
       }
-      entry.setNumber(0.0);
+      entry.setInteger(0);
       var dot = name.lastIndexOf('.');
       if (dot < 0) {
         break;
@@ -518,7 +488,7 @@ public final class CougarLogger {
     int levelNum = mappedLevel == null ? 0 : mappedLevel.intValue();
 
     NetworkTable table = NetworkTableInstance.getDefault().getTable(kTable);
-    table.getEntry(getName()).setNumber(levelNum);
+    table.getEntry(getName()).setInteger(levelNum);
   }
 
   private static void initFileHandler(Path debugLogPath) throws IOException {
@@ -631,7 +601,6 @@ public final class CougarLogger {
   private Level m_consoleLevel = null;  // Level console is enabled at.
 
   private static Map<String, CougarLogger> _loggers = new HashMap<>(); // NOPMD
-  private static CougarLoggerUpdater _updater;
 
   private static final Map<Level, Character> levelMap_;
 
